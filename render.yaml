@@ -17,7 +17,7 @@ services:
     name: jarvis-frontend
     runtime: static
     rootDir: frontend
-    buildCommand: npm install && REACT_APP_API_BASE_URL=https://jarvis-2-trzl.onrender.com REACT_APP_SOCKET_URL=https://jarvis-2-trzl.onrender.com npm run build
+    buildCommand: npm install && REACT_APP_API_BASE_URL=https://jarvis-4-r59i.onrender.com REACT_APP_SOCKET_URL=https://jarvis-4-r59i.onrender.com npm run build
     staticPublishPath: build
     routes:
       - type: rewrite
