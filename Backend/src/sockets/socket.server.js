@@ -10,7 +10,18 @@ const messageModel = require("../models/message.model");
 // ─── CLEAN REWRITE — all previous broken/duplicated code removed ───────────
 
 function initSocketServer(httpServer) {
-  const io = new Server(httpServer, {});
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:3002',
+    process.env.FRONTEND_URL,
+  ].filter(Boolean);
+
+  const io = new Server(httpServer, {
+    cors: {
+      origin: allowedOrigins,
+      credentials: true,
+    },
+  });
 
   io.use(async (socket, next) => {
     const cookies = cookie.parse(socket.handshake.headers?.cookie || "");

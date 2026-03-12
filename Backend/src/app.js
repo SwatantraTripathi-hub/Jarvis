@@ -27,4 +27,9 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 
+// Health check — so Render and browsers can confirm the server is alive
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'JARVIS API is running' });
+});
+
 module.exports = app;
