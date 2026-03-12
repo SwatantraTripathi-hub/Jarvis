@@ -4,7 +4,8 @@
   "scripts": {
     "predev": "npx kill-port 5000 3002",
     "dev": "concurrently -n backend,frontend -c cyan,magenta \"npm run dev --prefix Backend\" \"npm start --prefix frontend\"",
-    "start": "npm run dev"
+    "start": "node Backend/server.js",
+    "start:dev": "npm run dev"
   },
   "devDependencies": {
     "kill-port": "^2.0.1",
