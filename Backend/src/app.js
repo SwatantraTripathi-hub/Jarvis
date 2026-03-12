@@ -5,6 +5,9 @@ const cookieParser = require('cookie-parser');
 const authRoutes = require('./routes/auth.routes');
 require('dotenv').config();
 const chatRoutes = require('./routes/chat.routes');
+const path = require('path');
+
+const publicDir = path.join(__dirname, '..', 'public');
 
 const allowedOrigins = [
   'http://localhost:3000',
@@ -16,6 +19,14 @@ app.use(cors({
   origin: (origin, cb) => {
     // allow requests with no origin (mobile apps, curl, Postman)
     if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+
+    try {
+      const hostname = new URL(origin).hostname;
+      if (hostname.endsWith('.onrender.com')) return cb(null, true);
+    } catch (error) {
+      // Ignore invalid origins and reject them below.
+    }
+
     cb(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -23,13 +34,18 @@ app.use(cors({
 
 app.use(express.json());
 app.use(cookieParser());
+app.use(express.static(publicDir));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 
 // Health check — so Render and browsers can confirm the server is alive
-app.get('/', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'JARVIS API is running' });
+});
+
+app.get(/^(?!\/api).*/, (req, res) => {
+  res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 module.exports = app;

@@ -4,22 +4,8 @@ services:
     name: jarvis-backend
     runtime: node
     rootDir: Backend
-    buildCommand: npm install
+    buildCommand: npm install && cd ../frontend && npm install && npm run build && rm -rf ../Backend/public && mkdir -p ../Backend/public && cp -r build/* ../Backend/public/
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
-      - key: FRONTEND_URL
-        value: https://jarvis-frontend.onrender.com
-
-  # ── Frontend static site ──────────────────────────────────────
-  - type: web
-    name: jarvis-frontend
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm install && REACT_APP_API_BASE_URL=https://jarvis-4-r59i.onrender.com REACT_APP_SOCKET_URL=https://jarvis-4-r59i.onrender.com npm run build
-    staticPublishPath: build
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html

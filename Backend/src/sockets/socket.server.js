@@ -18,7 +18,18 @@ function initSocketServer(httpServer) {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: allowedOrigins,
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+
+        try {
+          const hostname = new URL(origin).hostname;
+          if (hostname.endsWith('.onrender.com')) return callback(null, true);
+        } catch (error) {
+          // Ignore invalid origins and reject them below.
+        }
+
+        return callback(new Error('Not allowed by Socket.IO CORS'));
+      },
       credentials: true,
     },
   });
