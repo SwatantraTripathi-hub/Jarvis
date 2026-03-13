@@ -39,7 +39,8 @@ app.use(express.static(publicDir));
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 
-// Health check — so Render and browsers can confirm the server is alive
+// Health check routes — /health is probed by Render, /api/health for API clients
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'JARVIS API is running' });
 });
