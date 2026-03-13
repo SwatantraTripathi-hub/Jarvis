@@ -76,6 +76,9 @@ const IconChat = () => (
 const IconMenu = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
 );
+const IconDownload = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+);
 
 /* ════════════════════════════════════════════════════════════ */
 /*                        APP COMPONENT                        */
@@ -87,7 +90,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 900);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
 
   const [loginForm, setLoginForm] = useState({ email: '', Password: '' });
   const [registerForm, setRegisterForm] = useState({ firstname: '', lastname: '', email: '', Password: '' });
@@ -275,6 +280,18 @@ function App() {
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+
+  /* ─── PWA install prompt ─────────────────────────────────── */
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); setInstallPrompt(e); setShowInstallBanner(true); };
+    const onInstalled = () => { setShowInstallBanner(false); setInstallPrompt(null); };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
   }, []);
 
   /* ─── socket connection ─────────────────────────────────── */
@@ -466,6 +483,14 @@ function App() {
     document.cookie = 'token=; Max-Age=0; path=/';
   };
 
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') setShowInstallBanner(false);
+    setInstallPrompt(null);
+  };
+
   const renderCommandDeck = (variant = 'welcome') => (
     <div className="command-deck">
       <div className="command-copy glass-panel">
@@ -619,6 +644,7 @@ function App() {
       ) : (
         /* ─── MAIN CHAT SHELL ──────────────────────────────── */
         <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+          {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
           {/* SIDEBAR */}
           <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
             <div className="sidebar-head">
@@ -628,6 +654,12 @@ function App() {
               </div>
               <button className="btn-new-chat" onClick={handleCreateChat} title="New Chat">
                 <IconPlus /> New Chat
+
+                            {showInstallBanner && (
+                              <button className="btn-install" onClick={handleInstall} title="Install Jarvis as an app">
+                                <IconDownload /> Install App
+                              </button>
+                            )}
               </button>
 
               <div className="sidebar-brief glass-panel">

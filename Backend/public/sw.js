@@ -1,34 +1,34 @@
 /* eslint-disable */
 /* eslint-env serviceworker */
 
-const CACHE_NAME = 'jarvis-cache-v1';
-const CORE_ASSETS = ['/', '/index.html', '/manifest.json', '/favicon.ico'];
+const CACHE_NAME = 'jarvis-cache-v2';
+const CORE_ASSETS = ['/index.html', '/manifest.json', '/favicon.ico'];
 
-globalThis.addEventListener('install', (event) => {
+self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
       .then((cache) => cache.addAll(CORE_ASSETS))
-      .then(() => globalThis.skipWaiting())
+      .then(() => self.skipWaiting())
   );
 });
 
-    globalThis.addEventListener('activate', (event) => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
-      .then(() => globalThis.clients.claim())
+      .then(() => self.clients.claim())
   );
 });
 
-    globalThis.addEventListener('fetch', (event) => {
+self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const { request } = event;
   const requestUrl = new URL(request.url);
 
-  if (requestUrl.origin !== globalThis.location.origin) return;
+  if (requestUrl.origin !== self.location.origin) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(
