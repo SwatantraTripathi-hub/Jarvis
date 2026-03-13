@@ -1,6 +1,6 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Jarvis",
+  "name": "Jarvis AI Assistant",
   "icons": [
     {
       "src": "favicon.ico",
@@ -18,8 +18,15 @@
       "sizes": "512x512"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "portrait-primary",
+  "theme_color": "#111827",
+  "background_color": "#0f172a",
+  "description": "Jarvis is an AI assistant you can install and use like a native app.",
+  "categories": ["productivity", "utilities"],
+  "lang": "en",
+  "dir": "ltr"
 }
