@@ -595,7 +595,7 @@
   width:min(1220px, 100%);
   margin:auto;
   display:grid;
-  grid-template-columns:minmax(0, 1.4fr) minmax(320px, .9fr);
+  grid-template-columns:minmax(280px, 1.4fr) minmax(280px, .9fr);
   gap:22px;
   animation:fadeUp .6s ease both;
 }
@@ -638,7 +638,7 @@
 .prompt-grid {
   margin-top:28px;
   display:grid;
-  grid-template-columns:repeat(2, minmax(0, 1fr));
+  grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
   gap:14px;
 }
 
@@ -1059,7 +1059,7 @@
   box-shadow:none;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1320px) {
   .command-deck {
     grid-template-columns:1fr;
   }
@@ -1166,4 +1166,15 @@
 @media (max-width: 900px) {
   .install-fab { display:flex; }
   .sidebar .btn-install { display:none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation:none !important;
+    transition:none !important;
+    scroll-behavior:auto !important;
+  }
+
+  .bg-canvas,
+  .orb-mini { display:none !important; }
 }

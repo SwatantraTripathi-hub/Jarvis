@@ -7,6 +7,7 @@ import './App.css';
 const API_BASE = process.env.REACT_APP_API_BASE_URL || '';
 const FALLBACK_SOCKET_URL = process.env.NODE_ENV === 'development' ? 'http://localhost:5000' : undefined;
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || process.env.REACT_APP_API_BASE_URL || FALLBACK_SOCKET_URL;
+const MAX_CLIENT_FILE_SIZE = 2 * 1024 * 1024;
 
 /* ─── helpers ─────────────────────────────────────────────── */
 
@@ -39,15 +40,26 @@ function dayLabel(value = new Date()) {
 }
 
 async function apiRequest(path, options = {}) {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: {
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(options.headers || {}),
+    },
     ...options,
   });
   let data = {};
   try { data = await res.json(); } catch { data = {}; }
   if (!res.ok) throw new Error(data?.message || `Request failed: ${res.status}`);
   return data;
+}
+
+function isLikelyLowEndDevice() {
+  const cpu = navigator.hardwareConcurrency || 4;
+  const mem = navigator.deviceMemory || 4;
+  const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  return cpu <= 4 || mem <= 4 || window.innerWidth < 900 || Boolean(prefersReducedMotion);
 }
 
 /* ─── SVG icons (inline) ──────────────────────────────────── */
@@ -106,6 +118,7 @@ function App() {
   const [socketConnected, setSocketConnected] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [isLowPerfDevice] = useState(() => isLikelyLowEndDevice());
 
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -113,6 +126,9 @@ function App() {
   const orbCanvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const visibilityPausedRef = useRef(false);
+  const voiceActiveRef = useRef(false);
 
   const activeMessages = useMemo(() => messagesByChat[activeChatId] || [], [messagesByChat, activeChatId]);
   const activeChat = useMemo(() => chats.find((c) => c._id === activeChatId), [chats, activeChatId]);
@@ -127,12 +143,12 @@ function App() {
 
   /* ─── 3D particle background (shader-driven) ───────────── */
   useEffect(() => {
-    if (process.env.NODE_ENV === 'test') return undefined;
+    if (process.env.NODE_ENV === 'test' || isLowPerfDevice) return undefined;
     const canvas = bgCanvasRef.current;
     if (!canvas) return undefined;
 
     const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     renderer.setSize(window.innerWidth, window.innerHeight);
 
     const scene = new THREE.Scene();
@@ -140,7 +156,7 @@ function App() {
     camera.position.z = 50;
 
     /* particles with custom shader for glow effect */
-    const count = 2200;
+    const count = window.innerWidth < 1200 ? 1200 : 1600;
     const positions = new Float32Array(count * 3);
     const sizes = new Float32Array(count);
     const phases = new Float32Array(count);
@@ -211,6 +227,10 @@ function App() {
     let frameId;
     const clock = new THREE.Clock();
     const animate = () => {
+      if (visibilityPausedRef.current) {
+        frameId = requestAnimationFrame(animate);
+        return;
+      }
       frameId = requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
       mat.uniforms.uTime.value = t;
@@ -219,10 +239,26 @@ function App() {
       ring.rotation.z = t * 0.1;
       renderer.render(scene, camera);
     };
+
+    const onVisibility = () => {
+      visibilityPausedRef.current = document.hidden;
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     animate();
 
-    return () => { cancelAnimationFrame(frameId); window.removeEventListener('resize', onResize); window.removeEventListener('mousemove', onMouse); geo.dispose(); mat.dispose(); ringGeo.dispose(); ringMat.dispose(); renderer.dispose(); };
-  }, []);
+    return () => {
+      cancelAnimationFrame(frameId);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('mousemove', onMouse);
+      geo.dispose();
+      mat.dispose();
+      ringGeo.dispose();
+      ringMat.dispose();
+      renderer.dispose();
+    };
+  }, [isLowPerfDevice]);
 
   /* ─── JARVIS orb ────────────────────────────────────────── */
   useEffect(() => {
@@ -230,26 +266,26 @@ function App() {
     if (mode !== 'chat' || !orbCanvasRef.current) return undefined;
     const W = 200, H = 200;
     const renderer = new THREE.WebGLRenderer({ canvas: orbCanvasRef.current, alpha: true, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isLowPerfDevice ? 1.2 : 1.8));
     renderer.setSize(W, H);
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
     camera.position.z = 4.5;
 
-    const sphereGeo = new THREE.SphereGeometry(1.1, 32, 32);
+    const sphereGeo = new THREE.SphereGeometry(1.1, isLowPerfDevice ? 20 : 28, isLowPerfDevice ? 20 : 28);
     const wireGeo = new THREE.WireframeGeometry(sphereGeo);
     const wireMat = new THREE.LineBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.18 });
     const orbMesh = new THREE.LineSegments(wireGeo, wireMat);
     scene.add(orbMesh);
 
-    const rGeo = new THREE.TorusGeometry(1.6, 0.008, 8, 100);
+    const rGeo = new THREE.TorusGeometry(1.6, 0.008, 8, isLowPerfDevice ? 72 : 100);
     const rMat = new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.5 });
     const rMesh = new THREE.Mesh(rGeo, rMat);
     rMesh.rotation.x = Math.PI / 2;
     scene.add(rMesh);
 
-    const r2Geo = new THREE.TorusGeometry(1.9, 0.005, 6, 80);
+    const r2Geo = new THREE.TorusGeometry(1.9, 0.005, 6, isLowPerfDevice ? 56 : 80);
     const r2Mat = new THREE.MeshBasicMaterial({ color: 0x00a8cc, transparent: true, opacity: 0.25 });
     const r2Mesh = new THREE.Mesh(r2Geo, r2Mat);
     r2Mesh.rotation.x = Math.PI / 3;
@@ -259,6 +295,10 @@ function App() {
 
     let frameId;
     const animate = () => {
+      if (document.hidden) {
+        frameId = requestAnimationFrame(animate);
+        return;
+      }
       frameId = requestAnimationFrame(animate);
       const t = Date.now() * 0.001;
       orbMesh.rotation.y = t * 0.3;
@@ -271,7 +311,7 @@ function App() {
     animate();
 
     return () => { cancelAnimationFrame(frameId); sphereGeo.dispose(); wireGeo.dispose(); wireMat.dispose(); rGeo.dispose(); rMat.dispose(); r2Geo.dispose(); r2Mat.dispose(); renderer.dispose(); };
-  }, [mode]);
+  }, [mode, isLowPerfDevice]);
 
   /* ─── network status ────────────────────────────────────── */
   useEffect(() => {
@@ -280,6 +320,21 @@ function App() {
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+
+  useEffect(() => {
+    voiceActiveRef.current = voiceActive;
+  }, [voiceActive]);
+
+  useEffect(() => {
+    if (mode !== 'chat' && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setVoiceActive(false);
+    }
+  }, [mode]);
+
+  useEffect(() => () => {
+    recognitionRef.current?.stop();
   }, []);
 
   /* ─── PWA install prompt ─────────────────────────────────── */
@@ -422,6 +477,15 @@ function App() {
     if (created?._id) focusComposer();
   };
 
+  const uploadSelectedFilesAsContext = useCallback(async (files) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    return apiRequest('/api/chat/upload-context', {
+      method: 'POST',
+      body: formData,
+    });
+  }, []);
+
   const submitPrompt = async (value) => {
     const text = value.trim();
     if (!text || streaming || !online) return;
@@ -441,15 +505,35 @@ function App() {
       apiRequest(`/api/chat/${targetChatId}/title`, { method: 'PATCH', body: JSON.stringify({ title: nextTitle }) }).catch(() => {});
     }
 
+    let enrichedPrompt = text;
+    let userVisiblePrompt = text;
+
+    if (selectedFiles.length) {
+      try {
+        const uploadResult = await uploadSelectedFilesAsContext(selectedFiles);
+        const fileNames = (uploadResult?.files || []).map((f) => f.fileName).filter(Boolean);
+        const context = String(uploadResult?.combinedContext || '').trim();
+
+        if (context) {
+          enrichedPrompt = `${text}\n\nUse the following uploaded file context to answer accurately. If data is missing, clearly say what is missing.\n\n${context}`;
+          userVisiblePrompt = `${text}\n\n📎 Files: ${fileNames.join(', ')}`;
+        }
+        setSelectedFiles([]);
+      } catch (err) {
+        setError(err.message || 'File processing failed. Use .txt/.md/.csv/.json/.xml files.');
+        return;
+      }
+    }
+
     setError('');
     setPrompt('');
     setStreaming(true);
     setMessagesByChat((prev) => ({
       ...prev,
-      [targetChatId]: [...(prev[targetChatId] || []), { role: 'user', content: text, at: new Date().toISOString() }],
+      [targetChatId]: [...(prev[targetChatId] || []), { role: 'user', content: userVisiblePrompt, at: new Date().toISOString() }],
     }));
 
-    socketRef.current.emit('ai-message', { prompt: text, chat: targetChatId });
+    socketRef.current.emit('ai-message', { prompt: enrichedPrompt, chat: targetChatId });
   };
 
   const sendMessage = async () => {
@@ -459,15 +543,82 @@ function App() {
   /* ─── file handler ──────────────────────────────────────── */
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files || []);
-    if (files.length) setSelectedFiles((prev) => [...prev, ...files]);
+    const oversized = files.find((f) => f.size > MAX_CLIENT_FILE_SIZE);
+    if (oversized) {
+      setError(`File too large: ${oversized.name}. Max size is 2MB.`);
+      e.target.value = '';
+      return;
+    }
+
+    if (files.length) {
+      setError('');
+      setSelectedFiles((prev) => [...prev, ...files].slice(0, 5));
+    }
     e.target.value = '';
   };
   const removeFile = (idx) => setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
 
   /* ─── voice activation ──────────────────────────────────── */
   const toggleVoice = () => {
-    setVoiceActive((v) => !v);
-    /* Backend integration placeholder — user said they'll build the backend for this */
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('Voice recognition is not supported on this browser. Use Chrome or Edge.');
+      return;
+    }
+
+    if (voiceActive) {
+      recognitionRef.current?.stop();
+      setVoiceActive(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    recognition.onresult = async (event) => {
+      const transcript = Array.from(event.results)
+        .filter((result) => result.isFinal)
+        .map((result) => result[0]?.transcript || '')
+        .join(' ')
+        .trim();
+
+      if (!transcript) return;
+      if (!socketConnected || !socketRef.current?.connected) {
+        setError('Voice captured, but realtime channel is disconnected.');
+        return;
+      }
+
+      let targetChatId = activeChatId;
+      if (!targetChatId) {
+        const created = await createNewChat(transcript);
+        if (!created?._id) return;
+        targetChatId = created._id;
+      }
+
+      setStreaming(true);
+      setMessagesByChat((prev) => ({
+        ...prev,
+        [targetChatId]: [...(prev[targetChatId] || []), { role: 'user', content: `🎤 ${transcript}`, at: new Date().toISOString() }],
+      }));
+
+      socketRef.current.emit('voice-message', { transcript, chat: targetChatId });
+    };
+
+    recognition.onerror = (event) => {
+      setError(`Voice error: ${event.error || 'unknown'}`);
+      setVoiceActive(false);
+    };
+
+    recognition.onend = () => {
+      if (!voiceActiveRef.current) return;
+      try { recognition.start(); } catch (_) {}
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setVoiceActive(true);
   };
 
   const handleQuickPrompt = async (value) => {

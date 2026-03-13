@@ -58,10 +58,10 @@ function initSocketServer(httpServer) {
   io.on("connection", (socket) => {
     console.log("User connected:", socket.user._id);
 
-    socket.on("ai-message", async (message) => {
+    const processPrompt = async ({ prompt, chat, source = 'text' }) => {
       try {
-        if (!message || !message.prompt) {
-          console.error("Invalid message received from client:", message);
+        if (!prompt || !chat) {
+          console.error("Invalid message received from client:", { prompt, chat, source });
           return;
         }
 
@@ -69,11 +69,11 @@ function initSocketServer(httpServer) {
         const [messagedoc, userVector] = await Promise.all([
           messageModel.create({
             user: socket.user._id,
-            content: message.prompt,
+            content: prompt,
             role: "user",
-            chat: message.chat,
+            chat,
           }),
-          ai.generateVector(message.prompt),
+          ai.generateVector(prompt),
         ]);
 
         // Store user message vector in Pinecone (non-blocking)
@@ -83,9 +83,9 @@ function initSocketServer(httpServer) {
             messageId: messagedoc._id.toString(),
             metadata: {
               userId: socket.user._id.toString(),
-              chatId: message.chat.toString(),
+              chatId: chat.toString(),
               role: "user",
-              text: message.prompt.slice(0, 200),
+              text: prompt.slice(0, 200),
             },
           }).catch((err) => console.warn("User vector storage failed:", err.message));
         }
@@ -95,12 +95,12 @@ function initSocketServer(httpServer) {
           queryMemory({
             vector: userVector,
             limit: 3,
-            metadataFilter: { chatId: { $eq: message.chat.toString() } },
+            metadataFilter: { chatId: { $eq: chat.toString() } },
           }).catch((err) => {
             console.warn("Memory query failed:", err.message);
             return [];
           }),
-          messageModel.find({ chat: message.chat }).sort({ createdAt: 1 }).lean(),
+          messageModel.find({ chat }).sort({ createdAt: 1 }).lean(),
         ]);
 
         const smt = chatHistory
@@ -122,16 +122,20 @@ function initSocketServer(httpServer) {
           : [];
 
        
-        const response = await ai.generateResponse([...ltm, ...smt, { role: "user", content: message.prompt }]);
+        const sourcePrefix = source === 'voice'
+          ? [{ role: 'system', content: 'The latest user query came from voice transcription. Handle minor speech-to-text noise gracefully.' }]
+          : [];
+
+        const response = await ai.generateResponse([...sourcePrefix, ...ltm, ...smt, { role: "user", content: prompt }]);
 
        
 
-        socket.emit("ai-response", { content: response, chat: message.chat });
+        socket.emit("ai-response", { content: response, chat });
         console.log("AI response:", response);
 
          const [responseMessage, responseVector] = await Promise.all([
           messageModel.create({
-            chat: message.chat,
+            chat,
             user: socket.user._id,
             role: "model",
             content: response,
@@ -144,7 +148,7 @@ function initSocketServer(httpServer) {
           messageId: responseMessage._id.toString(),
           metadata: {
             userId: socket.user._id.toString(),
-            chatId: message.chat.toString(),
+            chatId: chat.toString(),
             role: "model",
             text: response.slice(0, 200),
           },
@@ -158,11 +162,26 @@ function initSocketServer(httpServer) {
           content:
             error.clientMessage ||
             "Error: Failed to get AI response. Please try again.",
-          chat: message.chat,
+          chat,
         });
       }
 
+    };
 
+    socket.on("ai-message", async (message) => {
+      await processPrompt({
+        prompt: message?.prompt,
+        chat: message?.chat,
+        source: 'text',
+      });
+    });
+
+    socket.on("voice-message", async (message) => {
+      await processPrompt({
+        prompt: message?.transcript || message?.prompt,
+        chat: message?.chat,
+        source: 'voice',
+      });
     });
   });
 }

@@ -39,6 +39,20 @@ app.use(express.static(publicDir));
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 
+app.use((err, req, res, next) => {
+  if (!err) return next();
+
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ message: 'File too large. Maximum 2MB per file.' });
+  }
+
+  if (err.message?.includes('Unsupported file type')) {
+    return res.status(400).json({ message: err.message });
+  }
+
+  return res.status(500).json({ message: 'Request failed', detail: err.message });
+});
+
 // Health check routes — /health is probed by Render, /api/health for API clients
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/api/health', (req, res) => {
