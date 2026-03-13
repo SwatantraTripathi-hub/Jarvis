@@ -654,13 +654,13 @@ function App() {
               </div>
               <button className="btn-new-chat" onClick={handleCreateChat} title="New Chat">
                 <IconPlus /> New Chat
-
-                            {showInstallBanner && (
-                              <button className="btn-install" onClick={handleInstall} title="Install Jarvis as an app">
-                                <IconDownload /> Install App
-                              </button>
-                            )}
               </button>
+
+              {showInstallBanner && (
+                <button className="btn-install" onClick={handleInstall} title="Install Jarvis as an app">
+                  <IconDownload /> Install App
+                </button>
+              )}
 
               <div className="sidebar-brief glass-panel">
                 <div>
@@ -719,6 +719,13 @@ function App() {
             </header>
 
             {error && <div className="error-inline">{error}</div>}
+
+            {showInstallBanner && (
+              <button className="install-fab" onClick={handleInstall} title="Install Jarvis app">
+                <IconDownload />
+                <span>Install</span>
+              </button>
+            )}
 
             {/* messages */}
             <section className="messages">
