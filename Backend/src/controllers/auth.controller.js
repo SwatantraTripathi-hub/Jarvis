@@ -5,7 +5,7 @@ require('dotenv').config();
 // ...existing code...
 
 async function register(req,res){
-
+    try {
     const{fullName:{firstname,lastname},email,Password} = req.body;
 
 const user_hai_kya = await user_model.findOne({email:email});
@@ -14,6 +14,10 @@ if(user_hai_kya){
     return res.status(400).json({
         message:"User already exists"
     })
+}
+
+if(!Password){
+    return res.status(400).json({ message: "Password is required" });
 }
 
 //password hashing
@@ -44,11 +48,19 @@ res.status(201).json({
         _id:user._id
     }
 })
-
+    } catch(err) {
+        console.error('Register error:', err.message);
+        return res.status(500).json({ message: "Registration failed", detail: err.message });
+    }
 }
 
 async function login(req,res){
+    try {
     const{email,Password} = req.body;
+
+    if(!email || !Password){
+        return res.status(400).json({ message: "Email and password are required" });
+    }
 
     const user =  await user_model.findOne({
         email:email
@@ -59,6 +71,11 @@ async function login(req,res){
             message:"Please register first"
         })
     }
+
+    if(!user.Password){
+        return res.status(400).json({ message: "Invalid credentials" });
+    }
+
     const isPasswordMatch = await bcrypt.compare(Password,user.Password);
 
     if(!isPasswordMatch){
@@ -77,6 +94,10 @@ async function login(req,res){
             _id:user._id
         }
     })
+    } catch(err) {
+        console.error('Login error:', err.message);
+        return res.status(500).json({ message: "Login failed", detail: err.message });
+    }
 }
 
 module.exports = {register,login};

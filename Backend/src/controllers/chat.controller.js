@@ -1,5 +1,51 @@
 const chatModel = require('../models/chat.model');
 const messageModel = require('../models/message.model');
+const pdfParse = require('pdf-parse');
+const { GoogleGenAI } = require('@google/genai');
+
+let _geminiVisionClient = null;
+
+function getGeminiVisionClient() {
+    if (_geminiVisionClient) return _geminiVisionClient;
+
+    const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+    if (!apiKey) return null;
+
+    _geminiVisionClient = new GoogleGenAI({ apiKey });
+    return _geminiVisionClient;
+}
+
+async function extractImageTextWithGemini(file) {
+    const client = getGeminiVisionClient();
+    if (!client || !file?.buffer) return '';
+
+    try {
+        const response = await client.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        {
+                            text: 'Extract all visible readable text from this image. If text is not clear, provide a concise description of important visual content for AI context.',
+                        },
+                        {
+                            inlineData: {
+                                mimeType: file.mimetype || 'image/png',
+                                data: file.buffer.toString('base64'),
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+
+        return String(response?.text || '').trim();
+    } catch (error) {
+        console.warn(`Image parse failed for ${file?.originalname}:`, error.message);
+        return '';
+    }
+}
 
 function safeDecodeBuffer(buffer) {
     if (!buffer) return '';
@@ -7,11 +53,48 @@ function safeDecodeBuffer(buffer) {
     return text.replace(/\u0000/g, '').trim();
 }
 
-function summarizeFile(file) {
-    const raw = safeDecodeBuffer(file?.buffer);
+async function extractFileText(file) {
+    const ext = (file?.originalname || '').toLowerCase();
+    const mime = file?.mimetype || '';
+
+    if (mime === 'application/pdf' || ext.endsWith('.pdf')) {
+        try {
+            const parsed = await pdfParse(file.buffer);
+            return String(parsed?.text || '').trim();
+        } catch (err) {
+            console.warn(`PDF parse failed for ${file?.originalname}:`, err.message);
+            return '';
+        }
+    }
+
+    if (mime.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.webp'].some((x) => ext.endsWith(x))) {
+        return extractImageTextWithGemini(file);
+    }
+
+    return safeDecodeBuffer(file?.buffer);
+}
+
+async function summarizeFile(file) {
+    const raw = await extractFileText(file);
+    const fileName = file?.originalname || 'unknown';
+    const ext = (fileName || '').toLowerCase();
+    const mime = file?.mimetype || '';
+    const isImage = mime.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.webp'].some((x) => ext.endsWith(x));
+
     if (!raw) {
+        if (isImage) {
+            const fallback = `[IMAGE UPLOADED: ${fileName}]\nNo clear text could be extracted from this image. If needed, ask the user to upload a clearer screenshot or paste the text manually.`;
+            return {
+                fileName,
+                content: fallback,
+                chars: fallback.length,
+                skipped: false,
+                reason: 'Image OCR returned empty text',
+            };
+        }
+
         return {
-            fileName: file?.originalname || 'unknown',
+            fileName,
             content: '',
             chars: 0,
             skipped: true,
@@ -21,7 +104,7 @@ function summarizeFile(file) {
 
     const clipped = raw.slice(0, 6000);
     return {
-        fileName: file?.originalname || 'unknown',
+        fileName,
         content: clipped,
         chars: clipped.length,
         skipped: false,
@@ -88,7 +171,7 @@ async function uploadContextFiles(req, res) {
             return res.status(400).json({ message: 'No files were uploaded' });
         }
 
-        const parsed = files.map(summarizeFile);
+        const parsed = await Promise.all(files.map(summarizeFile));
         const usable = parsed.filter((f) => !f.skipped && f.content);
 
         if (!usable.length) {

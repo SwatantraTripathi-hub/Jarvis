@@ -12,6 +12,8 @@ const publicDir = path.join(__dirname, '..', 'public');
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3002',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3002',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
@@ -22,6 +24,7 @@ app.use(cors({
 
     try {
       const hostname = new URL(origin).hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return cb(null, true);
       if (hostname.endsWith('.onrender.com')) return cb(null, true);
     } catch (error) {
       // Ignore invalid origins and reject them below.
@@ -41,6 +44,10 @@ app.use('/api/chat', chatRoutes);
 
 app.use((err, req, res, next) => {
   if (!err) return next();
+
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ message: err.message });
+  }
 
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(400).json({ message: 'File too large. Maximum 2MB per file.' });

@@ -9,6 +9,11 @@ const allowedMime = new Set([
   'application/json',
   'application/xml',
   'text/xml',
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
 ]);
 
 const upload = multer({
@@ -19,7 +24,7 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     const ext = (file.originalname || '').toLowerCase();
-    const extAllowed = ['.txt', '.md', '.csv', '.json', '.xml'].some((x) => ext.endsWith(x));
+    const extAllowed = ['.txt', '.md', '.csv', '.json', '.xml', '.pdf', '.png', '.jpg', '.jpeg', '.webp'].some((x) => ext.endsWith(x));
     if (allowedMime.has(file.mimetype) || extAllowed) return cb(null, true);
     return cb(new Error(`Unsupported file type: ${file.originalname}`));
   },

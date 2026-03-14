@@ -9,10 +9,24 @@ const usermodel = require("../models/user.model");
 const messageModel = require("../models/message.model");
 // ─── CLEAN REWRITE — all previous broken/duplicated code removed ───────────
 
+const MEMORY_TIMEOUT_MS = 350;
+const RECENT_HISTORY_LIMIT = 10;
+
+function withTimeout(promise, ms, fallbackValue) {
+  let timeoutHandle;
+  const timeoutPromise = new Promise((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(fallbackValue), ms);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutHandle));
+}
+
 function initSocketServer(httpServer) {
   const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3002',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3002',
     process.env.FRONTEND_URL,
   ].filter(Boolean);
 
@@ -23,6 +37,7 @@ function initSocketServer(httpServer) {
 
         try {
           const hostname = new URL(origin).hostname;
+          if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return callback(null, true);
           if (hostname.endsWith('.onrender.com')) return callback(null, true);
         } catch (error) {
           // Ignore invalid origins and reject them below.
@@ -65,47 +80,41 @@ function initSocketServer(httpServer) {
           return;
         }
 
-        // Save user message and generate embedding vector in parallel
-        const [messagedoc, userVector] = await Promise.all([
-          messageModel.create({
-            user: socket.user._id,
-            content: prompt,
-            role: "user",
-            chat,
-          }),
-          ai.generateVector(prompt),
-        ]);
+        const userMessagePromise = messageModel.create({
+          user: socket.user._id,
+          content: prompt,
+          role: "user",
+          chat,
+        });
 
-        // Store user message vector in Pinecone (non-blocking)
-        if (Array.isArray(userVector) && userVector.length) {
-          createMemory({
-            vector: userVector,
-            messageId: messagedoc._id.toString(),
-            metadata: {
-              userId: socket.user._id.toString(),
-              chatId: chat.toString(),
-              role: "user",
-              text: prompt.slice(0, 200),
-            },
-          }).catch((err) => console.warn("User vector storage failed:", err.message));
-        }
+        const userVectorPromise = ai.generateVector(prompt).catch((err) => {
+          console.warn("User vector generation failed:", err.message);
+          return null;
+        });
 
-        // Query relevant past memories and chat history in parallel
-        const [memory, chatHistory] = await Promise.all([
-          queryMemory({
+        const memoryPromise = (async () => {
+          const userVector = await userVectorPromise;
+          if (!Array.isArray(userVector) || !userVector.length) return [];
+
+          return queryMemory({
             vector: userVector,
             limit: 3,
             metadataFilter: { chatId: { $eq: chat.toString() } },
           }).catch((err) => {
             console.warn("Memory query failed:", err.message);
             return [];
-          }),
-          messageModel.find({ chat }).sort({ createdAt: 1 }).lean(),
+          });
+        })();
+
+        const [chatHistoryDesc, memory] = await Promise.all([
+          messageModel.find({ chat }).sort({ createdAt: -1 }).limit(RECENT_HISTORY_LIMIT).lean(),
+          withTimeout(memoryPromise, MEMORY_TIMEOUT_MS, []),
         ]);
 
-        const smt = chatHistory
-          .map((item) => ({ role: item.role, content: item.content }))
-          .slice(-10);
+        const smt = chatHistoryDesc
+          .slice()
+          .reverse()
+          .map((item) => ({ role: item.role, content: item.content }));
 
         const memoryText = memory
           .map((item) => item?.metadata?.text || "")
@@ -128,31 +137,60 @@ function initSocketServer(httpServer) {
 
         const response = await ai.generateResponse([...sourcePrefix, ...ltm, ...smt, { role: "user", content: prompt }]);
 
-       
-
         socket.emit("ai-response", { content: response, chat });
         console.log("AI response:", response);
 
-         const [responseMessage, responseVector] = await Promise.all([
-          messageModel.create({
-            chat,
-            user: socket.user._id,
-            role: "model",
-            content: response,
-          }),
-          ai.generateVector(response),
-        ]);
-
-        await createMemory({
-          vector: responseVector,
-          messageId: responseMessage._id.toString(),
-          metadata: {
-            userId: socket.user._id.toString(),
-            chatId: chat.toString(),
-            role: "model",
-            text: response.slice(0, 200),
-          },
+        const responseMessage = await messageModel.create({
+          chat,
+          user: socket.user._id,
+          role: "model",
+          content: response,
         });
+
+        Promise.all([
+          userMessagePromise,
+          userVectorPromise,
+          ai.generateVector(response).catch((err) => {
+            console.warn("Response vector generation failed:", err.message);
+            return null;
+          }),
+        ])
+          .then(async ([userMessageDoc, userVector, responseVector]) => {
+            const jobs = [];
+
+            if (Array.isArray(userVector) && userVector.length && userMessageDoc?._id) {
+              jobs.push(
+                createMemory({
+                  vector: userVector,
+                  messageId: userMessageDoc._id.toString(),
+                  metadata: {
+                    userId: socket.user._id.toString(),
+                    chatId: chat.toString(),
+                    role: "user",
+                    text: prompt.slice(0, 200),
+                  },
+                })
+              );
+            }
+
+            if (Array.isArray(responseVector) && responseVector.length) {
+              jobs.push(
+                createMemory({
+                  vector: responseVector,
+                  messageId: responseMessage._id.toString(),
+                  metadata: {
+                    userId: socket.user._id.toString(),
+                    chatId: chat.toString(),
+                    role: "model",
+                    text: response.slice(0, 200),
+                  },
+                })
+              );
+            }
+
+            await Promise.all(jobs);
+          })
+          .catch((err) => console.warn("Background vector storage failed:", err.message));
       }
       
       
